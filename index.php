@@ -23,7 +23,12 @@
         bot.setIgnore("wizebot");
         bot.setIgnore("streamelements");
             let tamago=new tamagoTwitch("myTamago",bot,document.querySelector(".tamagoTwitch"));
-            tamago.display();
+          /*  tamago.setDisplayer((displayer)=>{
+                let title=document.createElement("h5");
+                title.innerText="Mon Tamago";
+                disp
+            })*/
+            tamago.init();
         </script>
 </body>
 

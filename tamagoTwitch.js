@@ -5,16 +5,32 @@ function getRandomInt(max) {
 class tamagoTwitch {
     constructor(name, bot, container) {
         this.name = name;
-        this.stat = {
+        this._rawStat = {
             joy: 0,
             fear: 0,
             angry: 100
-        }
+        };
+
+        this.stat = new Proxy(Object.freeze(this._rawStat), {
+            set: (target, prop, value) => {
+                if (!(prop in target)) return false;
+
+                // Clamp automatique
+                target[prop] = this.clampStat(value);
+
+                // Hooks globaux
+                this.onStatChange(prop, target[prop]);
+
+                return true;
+            }
+        });
+
         this.bot = bot;
         this.container = container;
         this.viewer = {}
         this.feed = 0;
         this.maxFeed = 255;
+        this.displayerCmd = null;
         this.queue = [];
 
         this.feedType = {
@@ -22,6 +38,41 @@ class tamagoTwitch {
             biscuit: 25
         };
         this.angryInterval = 0;
+
+    }
+    onStatChange(stat, value) {
+        // Render UI
+        this.render?.();
+
+        // Mood reaction instantanée
+        if (stat === "angry") {
+            if (value > 200)
+                this.reactAggressive();
+        }
+       /* if (stat === "joy") {
+            this.stat.angry -= 1;
+        }*/
+
+        // Debug
+        console.log(`[STAT] ${stat} => ${value}`);
+    }
+
+    defaultRenderer() {
+        this.container.innerHTML = "";
+
+        this.title = document.createElement("h3");
+        this.title.textContent = this.name;
+
+        this.moodBox = document.createElement("div");
+        this.moodBox.className = "tamago-mood";
+
+        this.messageBox = document.createElement("div");
+        this.messageBox.className = "tamago-messages";
+
+        this.container.append(this.title, this.moodBox, this.messageBox);
+    }
+
+    init() {
         this.initDisplay();
         this.initBot();
         this.feelAngry();
@@ -41,23 +92,21 @@ class tamagoTwitch {
                 clearInterval(this.angryInterval);
                 this.angryInterval = null;
             }
-        }, 1000);
+        }, 10000);
     }
     wait(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
     /* ===================== UI ===================== */
-
+    setDisplayer(callBack) {
+        this.displayerCmd = callBack;
+    }
     initDisplay() {
-        this.container.innerHTML = "";
-
-        this.title = document.createElement("h3");
-        this.title.innerText = this.name;
-
-        this.messageBox = document.createElement("div");
-        this.messageBox.className = "tamago-messages";
-
-        this.container.append(this.title, this.messageBox);
+        if (this.displayerCmd == null) {
+            this.defaultRenderer();
+        } else {
+            this.displayerCmd.call(this);
+        }
     }
 
     async addMessage(msg) {
@@ -109,7 +158,8 @@ class tamagoTwitch {
                     this.reactFear();
                     break;
             }
-        }, 15000);
+            this.renderMood()
+        }, 30000);
     }
     //========Réaction au Mood======//
     reactAngry() {
@@ -140,7 +190,11 @@ class tamagoTwitch {
         this.bot.message(msg);
         this.addMessage(msg);
     }
-
+    renderMood() {
+        if (this.moodBox) {
+            this.moodBox.textContent = `Humeur : ${this.getMood()}`;
+        }
+    }
     renderMessages() {
         this.messageBox.innerHTML = "";
         this.queue.forEach(msg => {
@@ -157,6 +211,18 @@ class tamagoTwitch {
     /* ===================== BOT ===================== */
 
     initBot() {
+        this.bot.getBot().on('raided', (channel, username, viewers) => {
+            this.stat.joy +=  (2 * viewers);
+        });
+        this.bot.getBot().on('subgift', (channel, username, streakMonths, recipient, methods, userstate) => {
+            this.stat.joy = this.clampStat(this.stat.joy + 15);
+        });
+        this.bot.getBot().on('subscription', (channel, username, method, message, userstate) => {
+            this.stat.joy = this.clampStat(this.stat.joy + 10);
+        });
+        this.bot.getBot().on('join', (channel, username, self) => {
+            this.stat.joy = this.clampStat(this.stat.joy + 3);
+        });
         this.bot.setCommand("!mood", (args, tag) => {
             const msg = `/me @${tag.username} demande comment ${this.name} se sent`;
             this.bot.message(msg);
@@ -164,7 +230,7 @@ class tamagoTwitch {
             const mood = this.getMood();
 
             switch (mood) {
-                case "CALME":{
+                case "CALME": {
                     this.bot.message(`/me ${this.name} souris à @${tag.username} `);
                     this.addMessage(`${this.name} souris à ${tag.username}`);
                     break;
@@ -176,7 +242,7 @@ class tamagoTwitch {
                 }
                 case "EN_COLÈRE": {
                     this.bot.message(`/me ${this.name} jette un regard sur @${tag.username} ! `);
-                    this.addMessage(`${this.classNameame} jette un regard sur @${tag.username}`);
+                    this.addMessage(`${this.name} jette un regard sur @${tag.username}`);
                     break;
                 }
                 case "JOYEUX": {
@@ -185,8 +251,8 @@ class tamagoTwitch {
                     break;
                 }
                 case "EFFRAYÉ": {
-                    this.bot.message(`/me ${this.username} reste dans son coin `);
-                    this.addMessage(`${this.username} reste dans son coin`);
+                    this.bot.message(`/me ${this.name} reste dans son coin `);
+                    this.addMessage(`${this.name} reste dans son coin`);
                     break;
                 }
             }
@@ -207,8 +273,8 @@ class tamagoTwitch {
                 this.addMessage(msg);
                 return;
             }
-            this.stat.joy = this.clampStat(this.stat.joy + 5);
-            this.stat.angry = this.clampStat(this.stat.angry - 2);
+            this.stat.joy +=5;
+            this.stat.angry -=2;
             this.bot.message(`/me ${tag.username} joue ${args[0]}`);
             this.addMessage(`${tag.username} joue ${args[0]}`);
             const botChoice = choices[getRandomInt(3)];
